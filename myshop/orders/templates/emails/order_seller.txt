@@ -1,0 +1,8 @@
+New paid order #{{ order.id }}
+Buyer: {{ order.first_name }} {{ order.last_name }} <{{ order.email }}>
+
+Subtotal: {{ subtotal_display }}
+{% if discount_display and discount_display != "$0.00" %}Discount: -{{ discount_display }}{% endif %}
+Total: {{ total_display }}
+
+Admin: {{ frontend_url }}/admin/orders/{{ order.id }}
