@@ -4,6 +4,12 @@ from django.conf import settings
 from .models import Product
 
 # connect to redis
+
+REDIS_HOST = getattr(settings, "REDIS_HOST", "127.0.0.1")
+REDIS_PORT = getattr(settings, "REDIS_PORT", 6379)
+REDIS_DB   = getattr(settings, "REDIS_DB", 0)
+
+
 r = redis.Redis(
     host=settings.REDIS_HOST,
     port=settings.REDIS_PORT,

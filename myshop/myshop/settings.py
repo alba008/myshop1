@@ -1,24 +1,42 @@
 # myshop/settings.py
 from pathlib import Path
+
 import os
 from datetime import timedelta
-from decouple import config
+from decouple import config, Csv
+from corsheaders.defaults import default_headers
 from django.utils.translation import gettext_lazy as _
+from decimal import Decimal
 
+
+# --------------------------------------------------------------------------------------
+# Paths
+# --------------------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# --------------------------------------------------------------------------------------
+# Helpers
+# --------------------------------------------------------------------------------------
+def csv_list(name: str, default: str = "") -> list[str]:
+    """Split comma/space separated env var into a clean list."""
+    raw = os.getenv(name, default)
+    return [chunk.strip() for chunk in raw.replace(" ", ",").split(",") if chunk.strip()]
 
 # --------------------------------------------------------------------------------------
 # Core
 # --------------------------------------------------------------------------------------
-SECRET_KEY = "django-insecure-3q#6d7barp49^g*7@j6es02dsaa)0(ey4h!r8-@=up%sckn7i9"
-DEBUG = True
+SECRET_KEY = config("SECRET_KEY", default="replace-me")
+DEBUG = config("DEBUG", cast=bool, default=False)
 
-ALLOWED_HOSTS = [
-    "localhost", "127.0.0.1", "10.0.0.47", "sockcs.com", "www.sockcs.com",
-]
+# Match our API domain
+ALLOWED_HOSTS = csv_list("ALLOWED_HOSTS", default="api.sockcs.com,localhost,127.0.0.1")
+
+# Trust reverse proxy (Nginx/ALB)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 
 # --------------------------------------------------------------------------------------
-# Apps
+# Applications
 # --------------------------------------------------------------------------------------
 INSTALLED_APPS = [
     # Django
@@ -29,7 +47,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Project apps (as per last occurrence)
+    # Project apps
     "accounts",
     "shop.apps.ShopConfig",
     "cart.apps.CartConfig",
@@ -38,26 +56,28 @@ INSTALLED_APPS = [
     "coupons.apps.CouponsConfig",
     "recommendation",
     "recommender",
-    "graphene_django",
     "support",
     "products",
     "customers.apps.CustomersConfig",
     "inventory.apps.InventoryConfig",
 
     # 3rd-party
-    "django_bootstrap5",
-    "rosetta",
+    "graphene_django",
     "rest_framework",
     "rest_framework.authtoken",
     "corsheaders",
     "django_filters",
+    "django_bootstrap5",
+    "rosetta",
 ]
 
 # --------------------------------------------------------------------------------------
 # Middleware
 # --------------------------------------------------------------------------------------
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",     # keep CORS first
+    "corsheaders.middleware.CorsMiddleware",
+
+
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.locale.LocaleMiddleware",
@@ -91,18 +111,40 @@ TEMPLATES = [
 WSGI_APPLICATION = "myshop.wsgi.application"
 
 # --------------------------------------------------------------------------------------
-# Database (last occurrence)
+# Database (env-driven)
 # --------------------------------------------------------------------------------------
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "myshop_dev",
-        "USER": "myshop_user",
-        "PASSWORD": "Leokesho@1",
-        "HOST": "localhost",
-        "PORT": "5432",
+ENGINE = config("DB_ENGINE", default="django.db.backends.sqlite3")
+
+if ENGINE.endswith("mysql"):
+    DATABASES = {
+        "default": {
+            "ENGINE": ENGINE,
+            "NAME": config("DB_NAME"),
+            "USER": config("DB_USER"),
+            "PASSWORD": config("DB_PASSWORD"),
+            "HOST": config("DB_HOST"),
+            "PORT": config("DB_PORT", default="3306"),
+            "OPTIONS": {"charset": "utf8mb4"},
+        }
     }
-}
+elif ENGINE.endswith("postgresql") or ENGINE.endswith("postgresql_psycopg2"):
+    DATABASES = {
+        "default": {
+            "ENGINE": ENGINE,
+            "NAME": config("DB_NAME"),
+            "USER": config("DB_USER"),
+            "PASSWORD": config("DB_PASSWORD"),
+            "HOST": config("DB_HOST", default="localhost"),
+            "PORT": config("DB_PORT", default="5432"),
+        }
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 # --------------------------------------------------------------------------------------
 # Auth / Users
@@ -121,10 +163,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # i18n / l10n
 # --------------------------------------------------------------------------------------
 LANGUAGE_CODE = "en"
-LANGUAGES = [
-    ("en", _("English")),
-    ("es", _("Spanish")),
-]
+LANGUAGES = [("en", _("English")), ("es", _("Spanish"))]
 TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
@@ -134,35 +173,55 @@ LOCALE_PATHS = [BASE_DIR / "locale"]
 # Static / Media
 # --------------------------------------------------------------------------------------
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_ROOT = config("STATIC_ROOT", default=str(BASE_DIR / "staticfiles"))
 
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# Serve media via absolute API URL
+MEDIA_URL = config("MEDIA_URL", default="https://api.sockcs.com/media/")
+MEDIA_ROOT = config("MEDIA_ROOT", default=str(BASE_DIR / "media"))
 
 # --------------------------------------------------------------------------------------
-# CORS / CSRF / Cookies (HTTP dev)  — kept last-set values
+# CORS / CSRF
 # --------------------------------------------------------------------------------------
-# (Earlier broader lists removed to preserve last effective behavior)
-CORS_ALLOWED_ORIGINS = [
-    "http://10.0.0.47:5174",
+CORS_ALLOWED_ORIGINS = csv_list(
+    "CORS_ALLOWED_ORIGINS",
+    default="https://sockcs.com,https://www.sockcs.com,https://api.sockcs.com"
+)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://socks-[a-z0-9-]+\.vercel\.app$",  # Vercel preview URLs
 ]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+"cache-control", "x-csrftoken", "authorization", "pragma",
+]
+
+
 CORS_ALLOW_CREDENTIALS = True
 
-SESSION_COOKIE_SAMESITE = "Lax"
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SAMESITE = "Lax"
-CSRF_COOKIE_SECURE = False
-CSRF_COOKIE_HTTPONLY = False  # frontend reads csrftoken
-CSRF_TRUSTED_ORIGINS = [
-    "http://10.0.0.47:8000",
-    "http://10.0.0.47:5174",
-]
+CSRF_TRUSTED_ORIGINS = csv_list(
+    "CSRF_TRUSTED_ORIGINS",
+    default="https://sockcs.com,https://www.sockcs.com,https://api.sockcs.com"
+)
 
+# ✅ Critical for sharing cookies across apex + subdomain
+SESSION_COOKIE_DOMAIN = ".sockcs.com"
+CSRF_COOKIE_DOMAIN   = ".sockcs.com"
+
+SESSION_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 days
+SESSION_SAVE_EVERY_REQUEST = True
 SESSION_SERIALIZER = "django.contrib.sessions.serializers.JSONSerializer"
 
+
+CART_SESSION_ID = "cart"
+
+
 # --------------------------------------------------------------------------------------
-# DRF (last merged config)
+# DRF / JWT
 # --------------------------------------------------------------------------------------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -170,7 +229,6 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.TokenAuthentication",
     ],
-    # Public by default; secure per-view for private endpoints
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
@@ -179,9 +237,6 @@ REST_FRAMEWORK = {
     ],
 }
 
-# --------------------------------------------------------------------------------------
-# JWT (kept once)
-# --------------------------------------------------------------------------------------
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
@@ -192,64 +247,120 @@ SIMPLE_JWT = {
 }
 
 # --------------------------------------------------------------------------------------
-# Email (last-set SMTP config)
+# Email
 # --------------------------------------------------------------------------------------
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = "smtp.hostinger.com"
-EMAIL_PORT = 465
-EMAIL_HOST_USER = "lilian@blsuntechdynamics.com"
-EMAIL_HOST_PASSWORD = "Leokesho@1"   # consider using env var
-EMAIL_USE_SSL = True
-DEFAULT_FROM_EMAIL = "Malamoyo <lilian@blsuntechdynamics.com>"
-SERVER_EMAIL = "lilian@blsuntechdynamics.com"
+EMAIL_HOST = config("EMAIL_HOST", default="smtp.hostinger.com")
+EMAIL_PORT = config("EMAIL_PORT", cast=int, default=587)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_SSL = config("EMAIL_USE_SSL", cast=bool, default=True)
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@sockcs.com")
+SERVER_EMAIL = config("SERVER_EMAIL", default=DEFAULT_FROM_EMAIL)
 
 # --------------------------------------------------------------------------------------
-# Cart
-# --------------------------------------------------------------------------------------
-CART_SESSION_ID = "cart"
-
-# --------------------------------------------------------------------------------------
-# Stripe
+# Stripe / Graphene / Misc
 # --------------------------------------------------------------------------------------
 STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", default="")
 STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="")
-STRIPE_API_VERSION = "2024-04-10"
+STRIPE_API_VERSION = config("STRIPE_API_VERSION", default="2024-04-10")
 STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="")
 
-# --------------------------------------------------------------------------------------
-# Redis (if used)
-# --------------------------------------------------------------------------------------
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
-REDIS_DB = 1
+GRAPHENE = {"SCHEMA": "recommender.schema.schema"}
 
-# --------------------------------------------------------------------------------------
-# Sessions (last-set)
-# --------------------------------------------------------------------------------------
-SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
-SESSION_COOKIE_AGE = 60 * 60 * 24 * 7        # 7 days
-SESSION_SAVE_EVERY_REQUEST = True
+OLLAMA_HOST = config("OLLAMA_HOST", default="http://127.0.0.1:11434")
+OLLAMA_MODEL = config("OLLAMA_MODEL", default="llama3:8b-instruct-q4_0")
+OLLAMA_TIMEOUT = config("OLLAMA_TIMEOUT", cast=int, default=12)
 
-# --------------------------------------------------------------------------------------
-# OLLAMA / Graphene / Logging / Site
-# --------------------------------------------------------------------------------------
-OLLAMA_HOST = os.getenv('OLLAMA_HOST', 'http://127.0.0.1:11434')
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3:8b-instruct-q4_0')
-OLLAMA_TIMEOUT = int(os.getenv('OLLAMA_TIMEOUT', '12'))  # seconds
-
-GRAPHENE = {
-    "SCHEMA": "recommender.schema.schema",
-}
-
-LOGGING = {
-    "version": 1,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
-    "loggers": {"django.request": {"handlers": ["console"], "level": "INFO"}},
-}
-
-SITE_NAME = "Malamoyo Candle"
-SITE_DOMAIN = "blsuntechdynamics.com"
-FRONTEND_URL = "https://blsuntechdynamics.com"
-FRONTEND_BASE_URL = "http://10.0.0.47:5174"
+SITE_NAME = config("SITE_NAME", default="Candle Shop")
+SITE_DOMAIN = config("SITE_DOMAIN", default="sockcs.com")
+FRONTEND_URL = config("FRONTEND_URL", default="https://sockcs.com")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --------------------------------------------------------------------------------------
+# Security
+# --------------------------------------------------------------------------------------
+if not DEBUG:
+    SECURE_HSTS_SECONDS = config("SECURE_HSTS_SECONDS", cast=int, default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    X_FRAME_OPTIONS = "DENY"
+
+# --------------------------------------------------------------------------------------
+# Logging
+# --------------------------------------------------------------------------------------
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
+    "loggers": {
+        "django.request": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+REDIS_HOST = '127.0.0.1' 
+REDIS_PORT = 6379          
+REDIS_DB   = 0   # <--- add this line
+
+
+TAX_RATES = {
+    # Your originals
+    "NY": Decimal("0.08875"),  # NYC combined (you set this)
+    "NJ": Decimal("0.06625"),
+    "CA": Decimal("0.0725"),
+
+    # Rest of states + DC (baseline statewide rates)
+    "AL": Decimal("0.0400"),
+    "AK": Decimal("0.0000"),
+    "AZ": Decimal("0.0560"),
+    "AR": Decimal("0.0650"),
+    "CO": Decimal("0.0290"),
+    "CT": Decimal("0.0635"),
+    "DE": Decimal("0.0000"),
+    "DC": Decimal("0.0600"),
+    "FL": Decimal("0.0600"),
+    "GA": Decimal("0.0400"),
+    "HI": Decimal("0.0400"),
+    "ID": Decimal("0.0600"),
+    "IL": Decimal("0.0625"),
+    "IN": Decimal("0.0700"),
+    "IA": Decimal("0.0600"),
+    "KS": Decimal("0.0650"),
+    "KY": Decimal("0.0600"),
+    "LA": Decimal("0.0445"),
+    "ME": Decimal("0.0550"),
+    "MD": Decimal("0.0600"),
+    "MA": Decimal("0.0625"),
+    "MI": Decimal("0.0600"),
+    "MN": Decimal("0.06875"),
+    "MS": Decimal("0.0700"),
+    "MO": Decimal("0.04225"),
+    "MT": Decimal("0.0000"),
+    "NE": Decimal("0.0550"),
+    "NV": Decimal("0.0685"),
+    "NH": Decimal("0.0000"),
+    "NM": Decimal("0.05125"),
+    "NC": Decimal("0.0475"),
+    "ND": Decimal("0.0500"),
+    "OH": Decimal("0.0575"),
+    "OK": Decimal("0.0450"),
+    "OR": Decimal("0.0000"),
+    "PA": Decimal("0.0600"),
+    "RI": Decimal("0.0700"),
+    "SC": Decimal("0.0600"),
+    "SD": Decimal("0.0450"),
+    "TN": Decimal("0.0700"),
+    "TX": Decimal("0.0625"),
+    "UT": Decimal("0.0485"),
+    "VT": Decimal("0.0600"),
+    "VA": Decimal("0.0430"),
+    "WA": Decimal("0.0650"),
+    "WV": Decimal("0.0600"),
+    "WI": Decimal("0.0500"),
+    "WY": Decimal("0.0400"),
+}

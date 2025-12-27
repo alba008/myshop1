@@ -1,33 +1,37 @@
+# myshop/cart/cart.py
 from decimal import Decimal
 from django.conf import settings
 from coupons.models import Coupon
 from django.apps import apps
 
+def _cart_key() -> str:
+    return getattr(settings, "CART_SESSION_ID", "cart")
+
 class Cart:
     def __init__(self, request):
         self.session = request.session
-        cart = self.session.get(settings.CART_SESSION_ID)
+        key = _cart_key()
+        cart = self.session.get(key)
         if not cart:
-            cart = self.session[settings.CART_SESSION_ID] = {}
+            cart = self.session[key] = {}
         self.cart = cart
-        self.coupon_id = self.session.get('coupon_id')
+        self.coupon_id = self.session.get("coupon_id")
 
     def add(self, product, quantity=1, override_quantity=False):
         product_id = str(product.id)
         if product_id not in self.cart:
             self.cart[product_id] = {
-                'quantity': 0,
-                'price': str(product.price),  # keep as str in session
+                "quantity": 0,
+                "price": str(product.price),  # keep as str in session
             }
         if override_quantity:
-            self.cart[product_id]['quantity'] = int(quantity)
+            self.cart[product_id]["quantity"] = int(quantity)
         else:
-            self.cart[product_id]['quantity'] += int(quantity)
+            self.cart[product_id]["quantity"] += int(quantity)
         self.save()
 
     def save(self):
-        # Write a JSON-safe snapshot into the session
-        self.session[settings.CART_SESSION_ID] = _to_jsonable(self.cart)
+        self.session[_cart_key()] = _to_jsonable(self.cart)
         self.session.modified = True
 
     def remove(self, product):
@@ -41,29 +45,26 @@ class Cart:
         Product = get_product_model()
         product_ids = list(self.cart.keys())
 
-        # Efficient lookup: id -> Product
         products_by_id = {str(p.id): p for p in Product.objects.filter(id__in=product_ids)}
 
         for pid, data in self.cart.items():
             product = products_by_id.get(pid)
             if not product:
-                # If product was deleted, skip the line (optional: auto-remove)
                 continue
-            price = Decimal(data['price'])   # convert only for computation
-            qty = int(data['quantity'])
+            price = Decimal(data["price"])
+            qty = int(data["quantity"])
             yield {
-                'product': product,          # transient, not stored in session
-                'price': price,              # Decimal only in yielded dict
-                'quantity': qty,
-                'total_price': price * qty,  # Decimal
+                "product": product,
+                "price": price,
+                "quantity": qty,
+                "total_price": price * qty,
             }
 
     def __len__(self):
-        return sum(int(item['quantity']) for item in self.cart.values())
+        return sum(int(item["quantity"]) for item in self.cart.values())
 
     def get_total_price(self):
-        return sum(Decimal(item['price']) * int(item['quantity'])
-                   for item in self.cart.values())
+        return sum(Decimal(item["price"]) * int(item["quantity"]) for item in self.cart.values())
 
     @property
     def coupon(self):
@@ -83,16 +84,17 @@ class Cart:
         return self.get_total_price() - self.get_discount()
 
     def clear(self):
-        if settings.CART_SESSION_ID in self.session:
-            del self.session[settings.CART_SESSION_ID]
+        key = _cart_key()
+        if key in self.session:
+            del self.session[key]
         self.session.modified = True
 
 
 def get_product_model():
-    return apps.get_model('shop', 'Product')
+    return apps.get_model("shop", "Product")
 
 def get_coupon_model():
-    return apps.get_model('coupons', 'Coupon')
+    return apps.get_model("coupons", "Coupon")
 
 def _to_jsonable(x):
     if isinstance(x, Decimal):

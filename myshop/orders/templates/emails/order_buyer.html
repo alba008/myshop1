@@ -106,7 +106,15 @@
                     <span class="chip"><b>Total:</b> {{ total_display }}</span>
                     <span class="chip"><b>Subtotal:</b> {{ subtotal_display }}</span>
                     {% if discount_display and discount_display != "$0.00" %}
-                    <span class="chip"><b>Discount{% if coupon_code %} ({{ coupon_code }}){% endif %}:</b> -{{ discount_display }}</span>
+                      <span class="chip"><b>Discount{% if coupon_code %} ({{ coupon_code }}){% endif %}:</b> -{{ discount_display }}</span>
+                    {% endif %}
+                    {% if shipping_display and shipping_display != "$0.00" %}
+                      <span class="chip"><b>Shipping{% if shipping_method_label %} ({{ shipping_method_label }}){% endif %}:</b> {{ shipping_display }}</span>
+                    {% endif %}
+                    {% if tax_display and tax_display != "$0.00" %}
+                      <span class="chip">
+                        <b>Tax{% if tax_rate_display %} ({{ tax_rate_display }}){% endif %}:</b> {{ tax_display }}
+                      </span>
                     {% endif %}
                   </div>
                 </td>
@@ -146,6 +154,22 @@
                             <tr>
                               <td colspan="3" align="right">Discount{% if coupon_code %} ({{ coupon_code }}){% endif %}</td>
                               <td class="price">-{{ discount_display }}</td>
+                            </tr>
+                            {% endif %}
+                            {% if shipping_display and shipping_display != "$0.00" %}
+                            <tr>
+                              <td colspan="3" align="right">
+                                Shipping{% if shipping_method_label %} ({{ shipping_method_label }}){% endif %}
+                              </td>
+                              <td class="price">{{ shipping_display }}</td>
+                            </tr>
+                            {% endif %}
+                            {% if tax_display and tax_display != "$0.00" %}
+                            <tr>
+                              <td colspan="3" align="right">
+                                Tax{% if tax_rate_display %} ({{ tax_rate_display }}){% endif %}
+                              </td>
+                              <td class="price">{{ tax_display }}</td>
                             </tr>
                             {% endif %}
                             <tr>

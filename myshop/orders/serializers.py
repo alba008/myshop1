@@ -1,3 +1,6 @@
+# orders/serializers.py
+from __future__ import annotations
+
 from decimal import Decimal
 from typing import Any
 from rest_framework import serializers
@@ -7,6 +10,38 @@ try:
     from shop.utils.media import ensure_media_url
 except Exception:
     ensure_media_url = None
+
+
+# ----------------------- Utils -----------------------
+def _dollars(v) -> str:
+    """
+    Safely cast Decimal/number to normalized string dollars (two decimals).
+    """
+    try:
+        if isinstance(v, Decimal):
+            return f"{v:.2f}"
+        return f"{Decimal(v or 0):.2f}"
+    except Exception:
+        return "0.00"
+
+
+def _first_attr(obj: Any, *names, default=None, fallback_obj: Any = None):
+    """
+    Return the first present, non-empty attribute from a list of candidates.
+    If not found on `obj`, also try `fallback_obj` (e.g., the Order instance).
+    """
+    for n in names:
+        if hasattr(obj, n):
+            val = getattr(obj, n)
+            if val not in (None, "", []):
+                return val
+    if fallback_obj is not None:
+        for n in names:
+            if hasattr(fallback_obj, n):
+                val = getattr(fallback_obj, n)
+                if val not in (None, "", []):
+                    return val
+    return default
 
 
 # ----------------------- Order Item Serializer -----------------------
@@ -40,7 +75,6 @@ class OrderItemOut(serializers.ModelSerializer):
         return getattr(prod, "pk", None) if prod is not None else None
 
     def get_product_name(self, obj):
-        # Prefer stored title/name on item if you add one later
         prod = self._get_product_obj(obj)
         if prod is None:
             return None
@@ -71,37 +105,23 @@ class OrderItemOut(serializers.ModelSerializer):
         try:
             price = Decimal(obj.price) if obj.price is not None else Decimal("0")
             qty = obj.quantity or 0
-            return str(price * qty)
+            return _dollars(price * qty)
         except Exception:
-            return "0"
+            return "0.00"
 
 
-# ----------------------- Helpers -----------------------
-def _first_attr(obj: Any, *names, default=None, fallback_obj: Any = None):
-    """
-    Return the first present, non-empty attribute from a list of candidates.
-    If not found on `obj`, also try `fallback_obj` (e.g., the Order instance).
-    """
-    for n in names:
-        if hasattr(obj, n):
-            val = getattr(obj, n)
-            if val not in (None, "", []):
-                return val
-    if fallback_obj is not None:
-        for n in names:
-            if hasattr(fallback_obj, n):
-                val = getattr(fallback_obj, n)
-                if val not in (None, "", []):
-                    return val
-    return default
-
-
-
-# ----------------------- Order Serializer (single class!) -----------------------
+# ----------------------- Order Serializer (authoritative totals) -----------------------
 class OrderOut(serializers.ModelSerializer):
     items = serializers.SerializerMethodField()
-    subtotal = serializers.SerializerMethodField()
     shipping = serializers.SerializerMethodField()
+
+    # Server-persisted monetary fields (do NOT recompute on client)
+    subtotal_amount = serializers.SerializerMethodField()
+    discount_amount = serializers.SerializerMethodField()
+    shipping_amount = serializers.SerializerMethodField()
+    tax_rate        = serializers.SerializerMethodField()
+    tax_amount      = serializers.SerializerMethodField()
+    total_amount    = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -112,13 +132,21 @@ class OrderOut(serializers.ModelSerializer):
             "email",
             "paid",
             "created",
+
+            # authoritative amounts (strings)
+            "subtotal_amount",
+            "discount_amount",
+            "shipping_amount",
+            "tax_rate",
+            "tax_amount",
+            "total_amount",
+
             "items",
-            "subtotal",
             "shipping",
         )
         read_only_fields = fields
 
-    # ---- items / subtotal ----
+    # ---- items ----
     def _order_items_qs(self, order):
         related = getattr(order, "items", None)
         return related.all() if related is not None else order.orderitem_set.all()
@@ -126,20 +154,33 @@ class OrderOut(serializers.ModelSerializer):
     def get_items(self, obj):
         return OrderItemOut(self._order_items_qs(obj), many=True).data
 
-    def get_subtotal(self, obj):
-        total = Decimal("0")
-        for it in self._order_items_qs(obj):
-            price = Decimal(it.price) if it.price is not None else Decimal("0")
-            qty = it.quantity or 0
-            total += price * qty
-        return str(total)
+    # ---- monetary passthrough (no recompute) ----
+    def get_subtotal_amount(self, obj): return _dollars(getattr(obj, "subtotal_amount", 0))
+    def get_discount_amount(self, obj): return _dollars(getattr(obj, "discount_amount", 0))
+    def get_shipping_amount(self, obj): return _dollars(getattr(obj, "shipping_amount", 0))
+    def get_tax_amount(self, obj):      return _dollars(getattr(obj, "tax_amount", 0))
+    def get_total_amount(self, obj):    return _dollars(getattr(obj, "total_amount", 0))
 
-    # ---- shipping ----
+    def get_tax_rate(self, obj):
+        """
+        Return tax rate as a normalized string (e.g., '0.08875').
+        Keep as rate, not percent. Client can format as needed.
+        """
+        try:
+            v = getattr(obj, "tax_rate", Decimal("0"))
+            if isinstance(v, Decimal):
+                return f"{v.normalize()}"
+            return str(Decimal(v or 0).normalize())
+        except Exception:
+            return "0"
+
+    # ---- shipping block ----
     def _get_shipping_obj(self, order):
         for rel in ("shipping_address", "shipping", "address", "ship_to"):
             if hasattr(order, rel) and getattr(order, rel) is not None:
                 return getattr(order, rel)
         return order  # fall back to fields on Order itself
+
     def get_shipping(self, obj):
         ship = self._get_shipping_obj(obj)
 
@@ -150,7 +191,7 @@ class OrderOut(serializers.ModelSerializer):
         company    = _first_attr(ship, "company", "organization", "shipping_company", "ship_company",
                                  fallback_obj=obj)
 
-        # ✅ include plain "address" and fall back to Order.address if needed
+        # include plain "address" and fall back to Order.address if needed
         address1   = _first_attr(ship, "address1", "line1", "street1", "street",
                                  "address_line1", "address_line_1", "address",
                                  fallback_obj=obj)

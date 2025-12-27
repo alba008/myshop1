@@ -1,24 +1,68 @@
-# Python
+# Python / Django
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*.log
+*.pot
+*.mo
+*.sqlite3
 
-# Env
-env/
+# Virtualenvs
+.venv/
 venv/
+
+# Django collectstatic (if you ever run it inside this folder)
+static/
+staticfiles/
+
+# Local uploads (keep user content out of git if present here)
+media/
+
+# Env & secrets
+.env
+.env.*
 *.env
 
-# Django stuff:
-*.sqlite3
-db.sqlite3
-media/
-staticfiles/
-*.log
+# Node (this app folder has package.json)
+node_modules/
 
-# VS Code
+# Editors/OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+cookies.txt
+
+# Virtualenv / local env
+venv/
+.venv/
+env/
+ENV/
+*.env
+.env
+.env.*
+
+# Django
+*.mo
+*.log
+*.sqlite3
+staticfiles/
+media/
+
+# OS / IDE
+.DS_Store
+.idea/
 .vscode/
 
-# OS
-.DS_Store
+# Node (if frontend is inside this repo)
+node_modules/
+dist/
+build/
 
+# Server config (keep out of git if it contains secrets)
+uwsgi.ini
+
+# Generated QR / assets (optional: keep server-only)
+*.png
+*.jpg
+*.jpeg
+qr_styled/

@@ -37,6 +37,22 @@
       <td align="right" style="padding:4px 0;color:#ef4444;">-{{ discount_display }}</td>
     </tr>
     {% endif %}
+    {% if shipping_display and shipping_display != "$0.00" %}
+    <tr>
+      <td style="padding:4px 0;color:#6b7280;">
+        Shipping{% if shipping_method_label %} ({{ shipping_method_label }}){% endif %}
+      </td>
+      <td align="right" style="padding:4px 0;color:#111827;">{{ shipping_display }}</td>
+    </tr>
+    {% endif %}
+    {% if tax_display and tax_display != "$0.00" %}
+    <tr>
+      <td style="padding:4px 0;color:#6b7280;">
+        Tax{% if tax_rate_display %} ({{ tax_rate_display }}){% endif %}
+      </td>
+      <td align="right" style="padding:4px 0;color:#111827;">{{ tax_display }}</td>
+    </tr>
+    {% endif %}
     <tr>
       <td style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:700;">Total</td>
       <td align="right" style="padding:8px 0;border-top:1px solid #e5e7eb;font-weight:700;">{{ total_display }}</td>
